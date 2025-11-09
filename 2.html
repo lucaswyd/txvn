@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>EmbedSports Sandbox Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background:#f7f8fb; }
+    h1 { font-size: 20px; margin-bottom: 12px; }
+    iframe { width: 100%; height: 600px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h1>EmbedSports iframe — sandbox="allow-scripts allow-same-origin"</h1>
+  <iframe 
+    src="https://embedsports.top/embed/foxtrot/6570a839bae85135f61b12cb/1"
+    sandbox="allow-scripts allow-same-origin"
+    allow="autoplay; fullscreen">
+  </iframe>
+
+  <p style="font-size:13px; color:#555; margin-top:12px;">
+    This iframe allows scripts and same-origin access, but <strong>popups are blocked</strong> because <code>allow-popups</code> is not included.
+  </p>
+</body>
+</html>
