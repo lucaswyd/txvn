@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>EmbedSports Proxy Iframe</title>
+  <style>
+    iframe { width: 100%; height: 600px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h1>EmbedSports iframe (onclick removed)</h1>
+  <button onclick="loadIframe()">Load Stream</button>
+
+  <iframe id="frame"></iframe>
+
+  <script>
+    async function loadIframe() {
+      const url = "https://embedsports.top/embed/foxtrot/6570a839bae85135f61b12cb/1";
+
+      // AllOrigins proxy URL (raw response)
+      const apiUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+
+      try {
+        const res = await fetch(apiUrl);
+        let html = await res.text();
+
+        // Remove all onclick attributes
+        html = html.replace(/ on\w+="[^"]*"/gi, '');
+
+        // Inject into iframe using srcdoc
+        document.getElementById('frame').srcdoc = html;
+      } catch (err) {
+        alert("Error fetching URL: " + err);
+      }
+    }
+  </script>
+</body>
+</html>
