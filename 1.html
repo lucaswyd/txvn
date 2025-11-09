@@ -1,38 +1,239 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>EmbedSports Proxy Iframe</title>
-  <style>
-    iframe { width: 100%; height: 600px; border: 1px solid #ccc; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Iframe Popup Blocking — testbed for embedsports</title>
+<style>
+  body { font-family: system-ui, Arial; margin: 18px; background:#f7f8fb; color:#111; }
+  h1 { margin: 0 0 8px 0; font-size: 20px; }
+  p.small { font-size: 13px; color:#444; margin:6px 0 12px; }
+  .controls { display:flex; gap: 8px; flex-wrap:wrap; margin-bottom:12px; }
+  button, .btn { padding:6px 10px; border-radius:6px; border:1px solid #ccd; background:white; cursor:pointer; }
+  #iframeWrap { position: relative; border:1px solid #ddd; background:#fff; height:520px; }
+  iframe.test { width:100%; height:100%; border:0; display:block; }
+  .overlay { position:absolute; inset:0; pointer-events:auto; background:rgba(255,255,255,0.0); display:flex; align-items:center; justify-content:center; }
+  .overlay .badge { background:rgba(0,0,0,0.6); color:#fff; padding:6px 10px; border-radius:6px; font-size:13px; }
+  .btn-grid { display:flex; flex-wrap:wrap; gap:6px; max-height:240px; overflow:auto; padding:6px; border:1px dashed #e0e6ef; background:#fff; }
+  .controls-row { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  label.inline { font-size:13px; margin-right:8px; }
+  textarea { width:100%; height:120px; font-family:monospace; font-size:12px; }
+  footer { font-size:12px; color:#666; margin-top:12px; }
+  .note { font-size:13px; color:#444; background:#fff; padding:8px; border-radius:6px; border:1px solid #eee; margin-top:8px; }
+</style>
 </head>
 <body>
-  <h1>EmbedSports iframe (onclick removed)</h1>
-  <button onclick="loadIframe()">Load Stream</button>
+  <h1>Iframe popup-blocking testbed — EmbedSports</h1>
+  <p class="small">URL tested: <code>https://embedsports.top/embed/foxtrot/6570a839bae85135f61b12cb/1</code></p>
 
-  <iframe id="frame"></iframe>
+  <div class="controls-row">
+    <button class="btn" id="loadOriginal">Load original (direct src)</button>
+    <button class="btn" id="loadAllOriginsSrc">Load via AllOrigins (iframe src = proxy)</button>
+    <button class="btn" id="loadAllOriginsSrcdoc">Load via AllOrigins + srcdoc (strip onclick)</button>
+    <label class="inline"><input type="checkbox" id="blockClicksOverlay"> Block clicks (overlay)</label>
+    <label class="inline"><input type="checkbox" id="disablePointer"> pointer-events: none (disable interaction)</label>
+    <label class="inline"><input type="checkbox" id="autoplayMute"> Autoplay muted (for HLS)</label>
+  </div>
 
-  <script>
-    async function loadIframe() {
-      const url = "https://embedsports.top/embed/foxtrot/6570a839bae85135f61b12cb/1";
+  <div class="note">
+    <strong>Quick notes:</strong>
+    <ul style="margin:6px 0 0 18px;">
+      <li>This page creates many sandbox combos (see below). Try ones <em>without</em> <code>allow-popups</code> to block popups — but some combos will break the player.</li>
+      <li><strong>srcdoc</strong> injection can let you strip <code>onclick</code> attributes, but relative script/css URLs often 404 (that’s why you saw jquery.bundle 404 earlier).</li>
+      <li>If you want reliable removal of popups while keeping the player functional, you need a server proxy that rewrites HTML and fixes relative paths.</li>
+    </ul>
+  </div>
 
-      // AllOrigins proxy URL (raw response)
-      const apiUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  <h3 style="margin-top:12px">Player area</h3>
+  <div id="iframeWrap">
+    <!-- The dynamic iframe is injected here -->
+    <iframe id="testFrame" class="test" src="" allow="autoplay; fullscreen"></iframe>
 
-      try {
-        const res = await fetch(apiUrl);
-        let html = await res.text();
+    <!-- overlay for blocking clicks when enabled -->
+    <div id="clickOverlay" class="overlay" style="display:none; pointer-events:auto;">
+      <div class="badge">Clicks blocked — overlay active</div>
+    </div>
+  </div>
 
-        // Remove all onclick attributes
-        html = html.replace(/ on\w+="[^"]*"/gi, '');
+  <h3 style="margin-top:12px">Sandbox permutations (click to load)</h3>
+  <p class="small">These are generated from common sandbox tokens. Buttons show the sandbox attribute value (empty = sandbox present with no tokens).</p>
+  <div class="btn-grid" id="sandboxButtons"></div>
 
-        // Inject into iframe using srcdoc
-        document.getElementById('frame').srcdoc = html;
-      } catch (err) {
-        alert("Error fetching URL: " + err);
+  <h3 style="margin-top:12px">Manual sandbox input</h3>
+  <div class="controls">
+    <input id="manualSandbox" placeholder="Enter sandbox tokens e.g. allow-scripts allow-same-origin" style="flex:1;padding:8px;border-radius:6px;border:1px solid #d8e0f0">
+    <button class="btn" id="loadManual">Load manual sandbox</button>
+  </div>
+
+  <h3 style="margin-top:12px">Raw playlist / debug (fetched via AllOrigins when using srcdoc or proxy)</h3>
+  <textarea id="debug" placeholder="Playlist / logs appear here..."></textarea>
+
+  <footer>
+    <strong>Limitations:</strong> You cannot from parent JS access or modify the DOM of a cross-origin iframe. Sandbox variations can prevent popups if you avoid allow-popups, but many players need allow-same-origin or allow-scripts to function. For reliable control, use a server-side proxy to rewrite the embed page.
+  </footer>
+
+<script>
+(() => {
+  const targetUrl = 'https://embedsports.top/embed/foxtrot/6570a839bae85135f61b12cb/1';
+  const apiAllOriginsRaw = (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u);
+
+  const frame = document.getElementById('testFrame');
+  const overlay = document.getElementById('clickOverlay');
+  const debug = document.getElementById('debug');
+  const loadOriginalBtn = document.getElementById('loadOriginal');
+  const loadAllOrigBtn = document.getElementById('loadAllOriginsSrc');
+  const loadAllOrigSrcdocBtn = document.getElementById('loadAllOriginsSrcdoc');
+  const blockClicksCheckbox = document.getElementById('blockClicksOverlay');
+  const disablePointerChk = document.getElementById('disablePointer');
+  const autoplayMuteChk = document.getElementById('autoplayMute');
+
+  function log(msg) {
+    debug.value += msg + "\\n";
+    debug.scrollTop = debug.scrollHeight;
+    console.log(msg);
+  }
+
+  // Put the original direct iframe
+  loadOriginalBtn.addEventListener('click', () => {
+    clearIframe();
+    frame.removeAttribute('sandbox');
+    frame.src = targetUrl;
+    frame.allow = "autoplay; fullscreen";
+    log('Loaded original direct src (no sandbox): ' + targetUrl);
+  });
+
+  // Load via AllOrigins but as iframe src (keeps relative URLs working)
+  loadAllOrigBtn.addEventListener('click', () => {
+    clearIframe();
+    const prox = apiAllOriginsRaw(targetUrl);
+    // We set src directly to proxy raw so browser treats it as a regular document
+    frame.removeAttribute('sandbox');
+    frame.src = prox;
+    frame.allow = "autoplay; fullscreen";
+    log('Loaded via AllOrigins raw proxy as iframe.src: ' + prox);
+  });
+
+  // Load via AllOrigins and inject into srcdoc after removing onclick attributes
+  loadAllOrigSrcdocBtn.addEventListener('click', async () => {
+    clearIframe();
+    frame.setAttribute('sandbox', ''); // sandbox without tokens for safety
+    frame.src = 'about:blank';
+    frame.allow = "autoplay; fullscreen";
+    log('Fetching page via AllOrigins for srcdoc injection (onclick removed)...');
+    try {
+      const resp = await fetch(apiAllOriginsRaw(targetUrl));
+      let html = await resp.text();
+      // remove onclick attributes only (as requested)
+      html = html.replace(/ on\w+\\s*=\\s*"[^"]*"/gi, '');
+      html = html.replace(/ on\w+\\s*=\\s*'[^']*'/gi, '');
+      // attempt to add a <base> tag so relative URLs resolve to original host
+      const baseTag = '<base href="' + targetUrl + '">';
+      // if <head> exists, inject base; otherwise prepend
+      if (/<head[\\s>]/i.test(html)) {
+        html = html.replace(/<head(.*?)>/i, match => match + baseTag);
+      } else {
+        html = baseTag + html;
       }
+      frame.srcdoc = html;
+      log('Injected srcdoc (onclick removed). Note: relative resource 404s may still occur.');
+    } catch (err) {
+      log('Error fetching via AllOrigins: ' + err);
+      alert('AllOrigins fetch failed. See console.');
     }
-  </script>
+  });
+
+  // overlay toggle
+  blockClicksCheckbox.addEventListener('change', () => {
+    overlay.style.display = blockClicksCheckbox.checked ? 'flex' : 'none';
+    log('Overlay ' + (blockClicksCheckbox.checked ? 'enabled' : 'disabled'));
+  });
+  // pointer events disable toggle
+  disablePointerChk.addEventListener('change', () => {
+    if (disablePointerChk.checked) {
+      frame.style.pointerEvents = 'none';
+      log('pointer-events: none active (iframe not interactable)');
+    } else {
+      frame.style.pointerEvents = '';
+      log('pointer-events restored');
+    }
+  });
+
+  // sandbox permutations generator
+  const sandboxTokens = [
+    'allow-scripts',
+    'allow-same-origin',
+    'allow-forms',
+    'allow-popups',
+    'allow-popups-to-escape-sandbox',
+    'allow-top-navigation'
+  ];
+  const btnContainer = document.getElementById('sandboxButtons');
+
+  // Generate all permutations (2^n)
+  const combos = [];
+  const n = sandboxTokens.length;
+  for (let mask = 0; mask < (1 << n); mask++) {
+    const parts = [];
+    for (let i = 0; i < n; i++) if (mask & (1 << i)) parts.push(sandboxTokens[i]);
+    combos.push(parts.join(' ')); // empty string means plain "sandbox" with no tokens
+  }
+
+  combos.forEach((val, idx) => {
+    const b = document.createElement('button');
+    b.className = 'btn';
+    b.textContent = val === '' ? '(sandbox - no tokens)' : val;
+    b.title = val === '' ? 'sandbox (no tokens) — maximum restriction' : val;
+    b.style.fontSize = '12px';
+    b.addEventListener('click', () => {
+      clearIframe();
+      // set sandbox attribute to the exact token set (empty string -> sandbox only)
+      if (val === '') {
+        frame.setAttribute('sandbox', '');
+      } else {
+        frame.setAttribute('sandbox', val);
+      }
+      // keep original src
+      frame.src = targetUrl;
+      frame.allow = "autoplay; fullscreen";
+      log('Loaded iframe with sandbox="' + val + '"');
+      // Note: if you included allow-popups, popups may be allowed.
+    });
+    btnContainer.appendChild(b);
+  });
+
+  // Manual sandbox loader
+  document.getElementById('loadManual').addEventListener('click', () => {
+    const tok = document.getElementById('manualSandbox').value.trim();
+    clearIframe();
+    if (tok === '') frame.setAttribute('sandbox', '');
+    else frame.setAttribute('sandbox', tok);
+    frame.src = targetUrl;
+    log('Loaded iframe with manual sandbox="' + tok + '"');
+  });
+
+  // helper: clear iframe by forcing unload to reduce stale state
+  function clearIframe() {
+    // hide overlay and reset debug area optionally
+    overlay.style.display = blockClicksCheckbox.checked ? 'flex' : 'none';
+    frame.srcdoc = '';
+    frame.removeAttribute('srcdoc');
+    frame.src = 'about:blank';
+    // small delay to ensure some browsers drop previous context
+    setTimeout(()=>{}, 50);
+  }
+
+  // start with direct src by default
+  loadOriginalBtn.click();
+
+  // Extra: intercept when user clicks popup overlay to allow deliberate interaction
+  overlay.addEventListener('click', () => {
+    // clicking overlay will toggle it off so user can interact after confirming
+    blockClicksCheckbox.checked = false;
+    overlay.style.display = 'none';
+    log('Overlay clicked — disabling click block so you can interact.');
+  });
+
+})();
+</script>
 </body>
 </html>
